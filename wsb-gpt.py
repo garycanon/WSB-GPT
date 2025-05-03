@@ -81,6 +81,10 @@ class MarketDataTab(QWidget):
         self.add_button.clicked.connect(self._add_stock_to_watchlist_handler)
         search_layout.addWidget(self.add_button)
 
+        self.clear_button = QPushButton("Clear Watchlist")
+        self.clear_button.clicked.connect(self._clear_watchlist_handler)
+        search_layout.addWidget(self.clear_button)
+
         layout.addLayout(search_layout)
 
         # Paper Mode Section
@@ -130,6 +134,16 @@ class MarketDataTab(QWidget):
                 self.search_bar.clear()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while checking ticker '{symbol}': {e}")
+
+    def _clear_watchlist_handler(self):
+        """
+        Clears all stocks from the watchlist that are not in the portfolio.
+        """
+        symbols_to_remove = [symbol for symbol in self.watchlist_symbols if symbol not in self.portfolio]
+        for symbol in symbols_to_remove:
+            self.watchlist_symbols.remove(symbol)
+        self.update_watchlist_table()
+        self.plot_stocks()
 
     def update_watchlist_table(self):
         """
