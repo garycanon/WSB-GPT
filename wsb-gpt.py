@@ -17,6 +17,16 @@ class StockFetcher:
     Fetches stock data from yfinance.
     """
     def fetch(self, symbol, period="1mo"):
+        """
+        Fetches historical stock data for a given symbol and period.
+
+        Args:
+            symbol (str): The stock ticker symbol.
+            period (str): The period for which to fetch data (e.g., "1d", "1mo", "1y").
+
+        Returns:
+            pandas.DataFrame: DataFrame containing the stock data, or empty DataFrame on error.
+        """
         try:
             # Fetch data for the specified symbol and period
             # progress=False suppresses the download progress bar
@@ -34,6 +44,12 @@ class SettingsTab(QWidget):
     Provides settings for the application, including cash and theme.
     """
     def __init__(self, main_window):
+        """
+        Initializes the SettingsTab.
+
+        Args:
+            main_window (QMainWindow): Reference to the main application window.
+        """
         super().__init__()
         self.main_window = main_window # Reference to the main window for applying themes
         self.simulated_cash = 500.0 # Initial simulated cash
@@ -74,7 +90,10 @@ class SettingsTab(QWidget):
 
     def set_cash(self, value):
         """
-        Sets the simulated cash amount.
+        Sets the simulated cash amount and updates the display in MarketDataTab.
+
+        Args:
+            value (float): The new simulated cash amount.
         """
         self.simulated_cash = value # Update the simulated cash value
         # The cash_input widget is already updated automatically by the spin box
@@ -85,7 +104,10 @@ class SettingsTab(QWidget):
 
     def apply_theme(self, index):
         """
-        Applies the selected theme to the main window and its widgets.
+        Applies the selected theme to the main window and its widgets using stylesheets.
+
+        Args:
+            index (int): The index of the selected theme in the combo box.
         """
         theme = self.theme_combo.itemText(index) # Get the selected theme name
         if theme == "Light":
@@ -157,6 +179,12 @@ class MarketDataTab(QWidget):
     Provides the main market data tab with watchlist and portfolio.
     """
     def __init__(self, settings_tab):
+        """
+        Initializes the MarketDataTab.
+
+        Args:
+            settings_tab (SettingsTab): Reference to the settings tab.
+        """
         super().__init__()
         self.settings_tab = settings_tab # Reference to the settings tab
         self.tracked_symbols = []  # List of all symbols ever added to watchlist (for plotting)
@@ -193,8 +221,9 @@ class MarketDataTab(QWidget):
 
         # Portfolio table
         self.stock_table = QTableWidget() # Table to display portfolio holdings
-        self.stock_table.setColumnCount(6) # Set number of columns
-        self.stock_table.setHorizontalHeaderLabels(["Stock", "Price", "Quantity", "Value", "Sell Qty", "Sell"]) # Set headers
+        # Updated column count and headers (removed "Sell Qty")
+        self.stock_table.setColumnCount(5)
+        self.stock_table.setHorizontalHeaderLabels(["Stock", "Price", "Quantity", "Value", "Sell"])
         # Allow only single row selection
         self.stock_table.setSelectionMode(QAbstractItemView.SingleSelection)
         # Prevent user from editing table cells
@@ -384,6 +413,9 @@ class MarketDataTab(QWidget):
     def remove_from_watchlist(self, symbol):
         """
         Removes a stock from the watchlist if it is not in the portfolio.
+
+        Args:
+            symbol (str): The symbol of the stock to remove.
         """
         # Check if the symbol is in the watchlist and NOT in the portfolio
         if symbol in self.watchlist_symbols and symbol not in self.portfolio:
@@ -404,6 +436,9 @@ class MarketDataTab(QWidget):
     def buy_stock_from_watchlist(self, symbol):
         """
         Handles buying a stock from the watchlist using an input dialog for quantity.
+
+        Args:
+            symbol (str): The symbol of the stock to buy.
         """
         # Open an input dialog to get the quantity to buy
         quantity, ok = QInputDialog.getInt(self, "Buy Stock", f"Enter quantity for {symbol}:", 1, 1, 10000, 1)
@@ -414,6 +449,11 @@ class MarketDataTab(QWidget):
         """
         Executes the stock buying logic.
         Validates input, checks funds, updates portfolio and cash.
+
+        Args:
+            symbol (str): The stock ticker symbol.
+            quantity (int): The number of shares to buy.
+            from_watchlist (bool): True if the buy request came from the watchlist table.
         """
         if not symbol:
             # Show warning if no symbol is entered
@@ -461,58 +501,60 @@ class MarketDataTab(QWidget):
                 self.plot_stocks() # Update the plot
             else:
                 # Show warning if insufficient funds
-                QMessageBox.warning(self, "Insufficient Funds", "You do not have enough simulated money.")
+                QMessageBox.warning(self, "Insufficient Funds", "You do not have enough funds.")
 
         except Exception as e:
             # Show critical error if an unexpected exception occurs during buying
             QMessageBox.critical(self, "Error", f"An error occurred while trying to buy '{symbol}': {e}")
 
-    def sell_stock(self, symbol, row):
+    def sell_stock(self, symbol):
         """
-        Handles selling a stock from the portfolio.
+        Handles selling a stock from the portfolio using an input dialog for quantity.
 
         Args:
             symbol (str): The symbol of the stock to sell.
-            row (int): The row index in the portfolio table where the sell button was clicked.
         """
-        # Get the QSpinBox widget from the 'Sell Qty' column (column 4) in the specified row
-        quantity_spin = self.stock_table.cellWidget(row, 4)
-        if isinstance(quantity_spin, QSpinBox):
-            quantity = quantity_spin.value() # Get the quantity from the spin box
-        else:
-            return  # Exit if the widget is not a QSpinBox (shouldn't happen with correct setup)
+        if symbol and symbol in self.portfolio and self.portfolio[symbol] > 0:
+            # Open an input dialog to get the quantity to sell
+            quantity_owned = self.portfolio[symbol]
+            quantity_to_sell, ok = QInputDialog.getInt(
+                self, "Sell Stock", f"Enter quantity to sell for {symbol}:", 1, 1, quantity_owned, 1
+            )
 
-        if symbol and symbol in self.portfolio:
-            # Fetch 1 day of data to get the current selling price
-            data = stock_fetcher.fetch(symbol, period="1d")
-            price = 0.0 # Initialize price
+            if ok and quantity_to_sell > 0: # If the user clicked OK and entered a valid quantity
+                # Fetch 1 day of data to get the current selling price
+                data = stock_fetcher.fetch(symbol, period="1d")
+                price = 0.0 # Initialize price
 
-            if not data.empty and ('Close', symbol) in data.columns:
-                # Get the last closing price, handling potential MultiIndex and NaN
-                last_close = data[('Close', symbol)].iloc[-1]
-                if isinstance(last_close, pd.Series):
-                    last_close = last_close.squeeze() # Convert Series to scalar if necessary
-                try:
-                    # Convert price to float, default to 0.0 if NaN or conversion fails
-                    price = float(last_close) if pd.notna(last_close) else 0.0
-                except (ValueError, TypeError):
-                    price = 0.0 # Set price to 0.0 on conversion error
+                if not data.empty and ('Close', symbol) in data.columns:
+                    # Get the last closing price, handling potential MultiIndex and NaN
+                    last_close = data[('Close', symbol)].iloc[-1]
+                    if isinstance(last_close, pd.Series):
+                        last_close = last_close.squeeze() # Convert Series to scalar if necessary
+                    try:
+                        # Convert price to float, default to 0.0 if NaN or conversion fails
+                        price = float(last_close) if pd.notna(last_close) else 0.0
+                    except (ValueError, TypeError):
+                        price = 0.0 # Set price to 0.0 on conversion error
 
-            # Check if the user has enough shares to sell
-            if self.portfolio.get(symbol, 0) >= quantity:
-                total_sale = price * quantity # Calculate the total sale amount
-                self.portfolio[symbol] -= quantity # Deduct sold quantity from portfolio
-                self.settings_tab.simulated_cash += total_sale # Add sale amount to cash
-                # Update the cash input display in the settings tab
-                self.settings_tab.cash_input.setValue(self.settings_tab.simulated_cash)
-                if self.portfolio[symbol] == 0:
-                    # Remove the symbol from the portfolio if quantity becomes zero
-                    del self.portfolio[symbol]
-                self.update_portfolio_and_cash() # Update portfolio table and cash display
-                self.update_watchlist_table()  # Refresh watchlist to update 'Owned' status
-            else:
-                # Show warning if insufficient shares
-                QMessageBox.warning(self, "Insufficient Shares", "You do not have enough shares to sell.")
+                # Check if the user has enough shares to sell (already checked by QInputDialog range, but good practice)
+                if self.portfolio.get(symbol, 0) >= quantity_to_sell:
+                    total_sale = price * quantity_to_sell # Calculate the total sale amount
+                    self.portfolio[symbol] -= quantity_to_sell # Deduct sold quantity from portfolio
+                    self.settings_tab.simulated_cash += total_sale # Add sale amount to cash
+                    # Update the cash input display in the settings tab
+                    self.settings_tab.cash_input.setValue(self.settings_tab.simulated_cash)
+                    if self.portfolio[symbol] == 0:
+                        # Remove the symbol from the portfolio if quantity becomes zero
+                        del self.portfolio[symbol]
+                    self.update_portfolio_and_cash() # Update portfolio table and cash display
+                    self.update_watchlist_table()  # Refresh watchlist to update 'Owned' status
+                else:
+                    # This case should ideally not be reached due to QInputDialog range
+                    QMessageBox.warning(self, "Insufficient Shares", "You do not have enough shares to sell.")
+        elif symbol not in self.portfolio or self.portfolio[symbol] == 0:
+             QMessageBox.information(self, "No Shares", f"You do not own any shares of {symbol} to sell.")
+
 
     def update_portfolio_and_cash(self):
         """
@@ -528,8 +570,12 @@ class MarketDataTab(QWidget):
     def update_portfolio_table(self):
         """
         Updates the portfolio table with the current holdings and calculates total value.
+        Removed the "Sell Qty" column.
         """
         self.stock_table.setRowCount(0) # Clear existing rows
+        # Updated column count and headers (removed "Sell Qty")
+        self.stock_table.setColumnCount(5)
+        self.stock_table.setHorizontalHeaderLabels(["Stock", "Price", "Quantity", "Value", "Sell"])
         stock_value = 0.0 # Initialize total stock value
 
         for symbol, quantity in self.portfolio.items():
@@ -559,17 +605,12 @@ class MarketDataTab(QWidget):
             self.stock_table.setItem(row_position, 2, QTableWidgetItem(str(quantity)))
             self.stock_table.setItem(row_position, 3, QTableWidgetItem(f"${value:.2f}"))
 
-            # Add QSpinBox for sell quantity
-            qty_spin = QSpinBox()
-            qty_spin.setRange(1, quantity) # Set range from 1 to the quantity owned
-            qty_spin.setValue(1) # Set default sell quantity to 1
-            self.stock_table.setCellWidget(row_position, 4,qty_spin) # Add spin box to 'Sell Qty' column
-
-            # Add Sell button
+            # Add Sell button (now in column 4)
             sell_button = QPushButton("Sell")
-            # Connect button click to sell_stock method using a lambda
-            sell_button.clicked.connect(lambda _, s=symbol, r=row_position: self.sell_stock(s, r))
-            self.stock_table.setCellWidget(row_position, 5, sell_button) # Add button to 'Sell' column
+            # Connect button click to sell_stock method using a lambda, passing only the symbol
+            sell_button.clicked.connect(lambda _, s=symbol: self.sell_stock(s))
+            self.stock_table.setCellWidget(row_position, 4, sell_button) # Add button to 'Sell' column
+
 
         # Calculate total portfolio value (stocks + cash)
         total_portfolio_value = stock_value + self.settings_tab.simulated_cash
@@ -598,51 +639,55 @@ class MarketDataTab(QWidget):
                     data.index = pd.to_datetime(data.index) # Ensure index is datetime
                     data = data.sort_index() # Sort data by date
                     # Filter data for the last month
-                    data = data[(data.index >= one_month_ago) & (data.index <= today)]
-                    # Plot the closing price data
-                    self.ax.plot(data.index, data[('Close', symbol)], label=symbol, linewidth=2)
+                    recent_data = data[(data.index >= one_month_ago) & (data.index <= today)]
 
-            # Set plot title and labels
-            self.ax.set_title("Watchlist - Last 1 Month")
-            self.ax.set_xlabel("Date")
-            self.ax.set_ylabel("Stock Price")
-            self.ax.legend() # Add a legend
-            self.ax.grid(True) # Add a grid
+                    if not recent_data.empty:
+                        # Plot the closing price for the symbol
+                        self.ax.plot(recent_data.index, recent_data[('Close', symbol)], label=symbol)
 
-            # Format the x-axis to show month and day, with ticks every 3 days
-            self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
-            self.ax.xaxis.set_major_locator(mdates.DayLocator(interval=3))
+            self.ax.set_title("Stock Closing Prices (Last Month)") # Set plot title
+            self.ax.set_xlabel("Date") # Set x-axis label
+            self.ax.set_ylabel("Closing Price") # Set y-axis label
+            self.ax.legend() # Show legend with stock symbols
+            self.ax.grid(True) # Add grid
+            self.figure.autofmt_xdate() # Auto-format x-axis dates
+            self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d')) # Format dates
+            self.ax.xaxis.set_major_locator(mdates.AutoDateLocator()) # Auto-locate date ticks
 
-        self.figure.tight_layout() # Adjust layout to prevent labels overlapping
-        self.canvas.draw() # Redraw the canvas to display the updated plot
+        self.canvas.draw() # Redraw the canvas to show the updated plot
 
-class BloombergApp(QMainWindow):
+
+class MainWindow(QMainWindow):
     """
-    Main application window for the Bloomberg-like stock trading simulator.
-    Manages the different tabs.
+    The main application window containing tabs for market data and settings.
     """
     def __init__(self):
+        """
+        Initializes the MainWindow.
+        """
         super().__init__()
-        self.setWindowTitle("WSB-GPT: Bloomberg Terminal Alternative") # Set window title
-        self.setGeometry(100, 100, 1000, 700) # Set window size and position
-        self.tabs = QTabWidget() # Create a QTabWidget to manage different tabs
+        self.setWindowTitle("Stock Trading Simulator") # Set window title
+        self.setGeometry(100, 100, 1000, 800) # Set window position and size
 
-        # Create instances of the settings and market data tabs
-        self.settings_tab = SettingsTab(self) # Pass reference to main window
-        self.market_tab = MarketDataTab(self.settings_tab) # Pass reference to settings tab
+        self.tab_widget = QTabWidget() # Create a tab widget
+        self.setCentralWidget(self.tab_widget) # Set the tab widget as the central widget
+
+        self.settings_tab = SettingsTab(self) # Create the settings tab
+        self.market_tab = MarketDataTab(self.settings_tab) # Create the market data tab, passing the settings tab
 
         # Add tabs to the tab widget
-        self.tabs.addTab(self.market_tab, "Market Data")
-        self.tabs.addTab(self.settings_tab, "Settings")
+        self.tab_widget.addTab(self.market_tab, "Market Data")
+        self.tab_widget.addTab(self.settings_tab, "Settings")
 
-        self.setCentralWidget(self.tabs) # Set the tab widget as the central widget of the main window
+        # Apply the default theme from settings on startup
+        self.settings_tab.apply_theme(self.settings_tab.theme_combo.currentIndex())
 
-if __name__ == "__main__":
-    # Create a QApplication instance
+
+if __name__ == '__main__':
+    # Create the application instance
     app = QApplication(sys.argv)
-    # Create the main application window
-    window = BloombergApp()
-    # Show the main window
-    window.show()
+    # Create and show the main window
+    main_window = MainWindow()
+    main_window.show()
     # Start the application event loop
     sys.exit(app.exec_())
