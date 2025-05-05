@@ -43,7 +43,7 @@ class SettingsTab(QWidget):
         theme_label = QLabel("Theme:") # Label for theme selection
         self.theme_combo = QComboBox() # Combo box for theme selection
         # Add theme options
-        self.theme_combo.addItems(["Light", "Dark", "High Contrast", "Blackout"])
+        self.theme_combo.addItems(["Blackout", "Light", "Dark", "High Contrast"])
         # Connect index change signal to apply_theme method
         self.theme_combo.currentIndexChanged.connect(self.apply_theme)
         theme_layout.addWidget(theme_label) # Add label to layout
